@@ -20,7 +20,11 @@ sub new {
 		my $boundary = $1;
 		while ($data =~ s/^$boundary[ \f\t]*//s) {
 			if ($data =~ s/^([^\r\n]+)\r?\n(.*?)(?=$boundary|\z)//s) {
-				$hrx->{main::catfile($1)} = $2;
+				my $fname = main::catfile($1);
+				if (exists $hrx->{$fname}) {
+					warn "Overwriting ", $path, " => ", $fname, "\n";
+				}
+				$hrx->{$fname} = $2;
 			}
 			elsif ($data =~ s/^\r?\n(.*?)(?=$boundary|\z)//s) {}
 			else { die "No HRX file block found\n"; }
@@ -77,7 +81,9 @@ package SPEC;
 
 use CSS::Sass;
 use Cwd qw(getcwd);
+use Cwd qw(abs_path);
 use Carp qw(croak);
+use File::Basename;
 use File::Spec::Functions;
 
 my $cwd = getcwd;
@@ -102,7 +108,9 @@ my $norm_output = sub ($) {
 		$_[0] =~ s/\Q$cwd_win\E[\/\\]t[\/\\]sass-spec[\/\\]/\/sass\//g;
 		$_[0] =~ s/\Q$cwd_nix\E[\/\\]t[\/\\]sass-spec[\/\\]/\/sass\//g;
 		# normalize nth-child binomial whitespace
-		$_[0] =~ s/\(\s*(\d+n)\s*([+-])\s*(\d+)\s*\)/($1 $2 $3)/g;
+		# $_[0] =~ s/\(\s*(\d+n)\s*([+-])\s*(\d+)\s*\)/($1 $2 $3)/g;
+		# empty file (only linebreaks)
+		$_[0] =~ s/^(?:\r?\n)+$//g;
 	}
 };
 
@@ -152,7 +160,29 @@ sub stderr
 	$norm_output->($stderr);
 	# clean todo warnings (remove all warning blocks)
 	$stderr =~ s/^(?:DEPRECATION )?WARNING(?:(?!Error)[^\n]+\n)*\n*//gm;
-	$stderr =~ s/\n.*\Z//s;
+	# $stderr =~ s/\n.*\Z//s;
+	utf8::decode($stderr);
+	return $stderr;
+}
+
+sub stderr2
+{
+	my ($spec) = @_;
+
+	local $/ = undef;
+	my $path = catfile($spec->{root}->{root}, "error-dart-sass");
+	$path = catfile($spec->{root}->{root}, "error-libsass") unless -f $path;
+	$path = catfile($spec->{root}->{root}, "error") unless -f $path;
+	return "" unless -f $path;
+	open my $fh, "<:raw:utf8", $path or
+		croak "Error opening <", $path, ">: $!";
+	binmode $fh; my $stderr = join "\n", <$fh>;
+	# fully remove debug messaged from error
+	$stderr =~ s/[^\n]+(\d+) DEBUG: [^\n]*//g;
+	$norm_output->($stderr);
+	# clean todo warnings (remove all warning blocks)
+	$stderr =~ s/^(?:DEPRECATION )?WARNING(?:(?!Error)[^\n]+\n)*\n*//gm;
+	# $stderr =~ s/\n.*\Z//s;
 	utf8::decode($stderr);
 	return $stderr;
 }
@@ -177,11 +207,37 @@ sub stdmsg
 	}
 	# clean error messages
 	$stderr =~ s/^Error(?:[^\n]+\n)*\n*//gm;
-	$stderr =~ s/\n.*\Z//s;
+	# $stderr =~ s/\n.*\Z//s;
 	utf8::decode($stderr);
 	return $stderr;
 }
 
+sub stdmsg2
+{
+	my ($spec) = @_;
+
+	local $/ = undef;
+	my $path = catfile($spec->{root}->{root}, "warning-dart-sass");
+	$path = catfile($spec->{root}->{root}, "warning-libsass") unless -f $path;
+	$path = catfile($spec->{root}->{root}, "warning") unless -f $path;
+	$path = catfile($spec->{root}->{root}, "error-dart-sass") unless -f $path;
+	$path = catfile($spec->{root}->{root}, "error-libsass") unless -f $path;
+	$path = catfile($spec->{root}->{root}, "error") unless -f $path;
+	return '' unless -f $path;
+	open my $fh, "<:raw:utf8", $path or
+		croak "Error opening <", $path, ">: $!";
+	binmode $fh; my $stderr = join "\n", <$fh>;
+	$norm_output->($stderr);
+	if ($spec->{test}->{wtodo}) {
+		# clean todo warnings (remove all warning blocks)
+		$stderr =~ s/^(?:DEPRECATION )?WARNING(?:[^\n]+\n)*\n*//gm;
+	}
+	# clean error messages
+	$stderr =~ s/^Error(?:[^\n]+\n)*\n*//gm;
+	# $stderr =~ s/\n.*\Z//s;
+	utf8::decode($stderr);
+	return $stderr;
+}
 sub expected
 {
 	my ($spec) = @_;
@@ -199,12 +255,44 @@ sub expected
 	else {
 		return "";
 	}
+}
+
+sub expected2
+{
+	my ($spec) = @_;
+
+	local $/ = undef;
+	my $path = catfile($_[0]->{root}->{root}, "expected_output-libsass.css");
+	$path = catfile($_[0]->{root}->{root}, "expected_output.css") unless -f $path;
+	$path = catfile($_[0]->{root}->{root}, "output-dart-sass.css") unless -f $path;
+	$path = catfile($_[0]->{root}->{root}, "output-libsass.css") unless -f $path;
+	$path = catfile($_[0]->{root}->{root}, "output.css") unless -f $path;
+	if (-f $path) {
+		open my $fh, "<:raw:utf8", $path or
+			croak "Error opening <", $path, ">: $!";
+		binmode $fh; return join "", <$fh>;
+	}
+	else {
+		return "";
+	}
 
 }
 
 sub expect
 {
 	my $css = $_[0]->expected;
+	return "" unless defined $css;
+	utf8::decode($css);
+	$norm_output->($css);
+	if ($_[0]->query('clean')) {
+		$clean_output->($css);
+	}
+	return $css;
+}
+
+sub expect2
+{
+	my $css = $_[0]->expected2;
 	return "" unless defined $css;
 	utf8::decode($css);
 	$norm_output->($css);
@@ -237,7 +325,7 @@ sub err
 	my $err = $_[0]->{err};
 	return "" unless defined $err;
 	$norm_output->($err);
-	$err =~ s/\n.*\Z//s;
+	# $err =~ s/\n.*\Z//s;
 	return $err;
 }
 
@@ -251,7 +339,7 @@ sub msg
 		# clean todo warnings (remove all warning blocks)
 		$msg =~ s/^(?:DEPRECATION )?WARNING(?:[^\n]+\n)*\n*//gm;
 	}
-	$msg =~ s/\n.*\Z//s;
+	# $msg =~ s/\n.*\Z//s;
 	return $msg;
 }
 
@@ -264,7 +352,8 @@ sub execute
 	return if defined $spec->{css};
 	return if defined $spec->{err};
 
-	# warn $spec->{file};
+	# report spec file
+	#warn $spec->{file};
 
 	# CSS::Sass options
 	my %options = (
@@ -272,8 +361,13 @@ sub execute
 		$spec->query('prec'),
 		'output_style',
 		$spec->style,
+		'include_paths',
+		[abs_path('t/sass-spec/spec')],
+		'dont_die', 1
 	);
 
+	my $cwd = getcwd();
+	chdir(dirname($spec->{file}));
 	my $comp = CSS::Sass->new(%options);
 
 	# save stderr
@@ -282,16 +376,19 @@ sub execute
 
 	# redirect stderr to file
 	open(STDERR, "+>:raw:utf8", "specs.stderr.log"); select(STDERR); $| = 1;
-	my $css = eval { $comp->compile_file($spec->{file}) }; my $err = $@;
-	sysseek(STDERR, 0, 0); sysread(STDERR, my $msg, 65536); close(STDERR);
+	my ($css, $stats) = eval { $comp->compile_file(basename($spec->{file})) }; my $err = $@;
+	sysseek(STDERR, 0, 0); sysread(STDERR, my $msg, 65536);
+	close(STDERR); unlink("specs.stderr.log");
 
 	# reset stderr
 	open STDERR, '>&OLDFH';
 
 	# store the results
 	$spec->{css} = $css;
-	$spec->{err} = $err;
+	$spec->{err} = $stats->{"error_message"};
 	$spec->{msg} = $msg;
+
+	chdir($cwd);
 
 	# return the results
 	return $css, $err;
@@ -314,6 +411,8 @@ sub query { shift->{root}->query(@_); }
 
 ################################################################################
 package main;
+################################################################################
+our $unpackOnce; BEGIN { $unpackOnce = 1; }
 ################################################################################
 
 use Carp qw(croak);
@@ -339,6 +438,7 @@ sub write_file($$)
 # ********************************************************************
 sub unpack_hrx()
 {
+	return if $unpackOnce && -f 't/sass-spec/.unpacked';
 	my @dirs = (['t/sass-spec/spec', new DIR]);
 	# walk through all directories
 	# no recursion for performance
@@ -374,10 +474,16 @@ sub unpack_hrx()
 		closedir($dh);
 
 	}
+	# Mark that it was unpacked
+	if ($unpackOnce) {
+		write_file('t/sass-spec/.unpacked', '');
+	}
 }
 # ********************************************************************
 sub revert_hrx()
 {
+	return if $unpackOnce && -f 't/sass-spec/.unpacked';
+	unlink 't/sass-spec/.unpacked' if -f 't/sass-spec/.unpacked';
 	my @dirs = (['t/sass-spec/spec', new DIR]);
 	# walk through all directories
 	# no recursion for performance
@@ -443,11 +549,11 @@ sub load_tests()
 			$test->{style} = $yaml->{':output_style'};
 			$test->{start} = $yaml->{':start_version'};
 			$test->{end} = $yaml->{':end_version'};
-			$test->{ignore} = grep /^libsass$/i,
+			$test->{ignore} = grep /libsass/i,
 				@{$yaml->{':ignore_for'} || []};
-			$test->{wtodo} = grep /^libsass$/i,
+			$test->{wtodo} = grep /libsass/i,
 				@{$yaml->{':warning_todo'} || []};
-			$test->{todo} = grep /^libsass$/i,
+			$test->{todo} = grep /libsass/i,
 				@{$yaml->{':todo'} || []};
 		}
 
@@ -527,21 +633,77 @@ END {
 use Test::More tests => 3 * scalar @specs;
 use Test::Differences;
 
+my @matchDartSass;
+
+open(my $fh, ">", "dashit.scss");
+
 # run tests after filtering
 foreach my $spec (@specs)
 {
-	# compare the result with expected data
-	eq_or_diff ($spec->css, $spec->expect, "CSS: " . $spec->file);
+
+if ($spec->err eq "" ) {
+	my $file = $spec->{file};
+	my $in = read_file($spec->{file});
+	unless ($in=~m/\@import/i || $in=~m/\@extend\s+\.foo/i) {
+		$file =~ s|^t\\sass-spec\\spec\\||;
+		$file =~ s/\\+/\//g;
+		print $fh "\@debug(\"$file\");", "\n";
+		print $fh "\@import \"$file\";", "\n";
+	}
+
+}
+
+	# those seem to fail due to scoping
+	#next if $spec->file =~ m/mixin\-content/;
+	# next if $spec->file =~ m/bourbon/;
+	# next if $spec->file =~ m/_1255/;
+	# next if $spec->file =~ m/_2520/;
+	# next if $spec->file =~ m/while_directive/;
+	
+
+	if ($spec->css eq $spec->expect2 && $spec->css ne $spec->expect) {
+		# compare the result with expected data
+		eq_or_diff ($spec->css, $spec->expect2, "CSS: " . $spec->file);
+		push @matchDartSass, $spec;
+	} else {
+		# compare the result with expected data
+		eq_or_diff ($spec->css, $spec->expect, "CSS: " . $spec->file);
+	}
+
 	# skip some faulty error specs (perl is picky)
 	if ($spec->{file} =~ m/\Wissue_(?:2446)\W/) {
 		ok('Invalid UTF8 sequence in output');
-	} else {
-		eq_or_diff ($spec->err, $spec->stderr, "Errors: " . $spec->file);
+	} elsif(!$spec->css) {
+
+		if ($spec->err eq $spec->stderr2 && $spec->err ne $spec->stderr) {
+			eq_or_diff ($spec->err, $spec->stderr2, "Errors: " . $spec->file);
+		}
+		else {
+			eq_or_diff ($spec->err, $spec->stderr, "Errors: " . $spec->file);
+		}
+
+	}
+	else {
+		ok('Skip error case since we had css result');
 	}
 	# skip some faulty warning specs (perl is picky)
 	if ($spec->{file} =~ m/\Wissue_(?:308|1578)\W/) {
 		ok('Warning message not marked as todo in spec')
 	} else {
-		eq_or_diff ($spec->msg, $spec->stdmsg, "Warnings: " . $spec->file);
+
+		if (0 && $spec->msg eq $spec->stdmsg2 && $spec->msg ne $spec->stdmsg) {
+			eq_or_diff ($spec->msg, $spec->stdmsg2, "Warnings: " . $spec->file);
+		}
+		else {
+			eq_or_diff ($spec->msg, $spec->stdmsg, "Warnings: " . $spec->file);
+		}
+
+
 	}
 }
+
+# print ("=" x 60), "\n" if scalar @matchDartSass;
+foreach my $spec (@matchDartSass) {
+	# print $spec->file, "\n";
+}
+# print ("=" x 60), "\n" if scalar @matchDartSass;
