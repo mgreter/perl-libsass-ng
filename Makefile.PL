@@ -45,6 +45,7 @@ my $install_library = env_option 'PSASS_INSTALL_LIBRARY', 0;
 my $native_watcher = env_option 'PSASS_NATIVE_WATCHER', 0;
 my $compiler = env_option 'PSASS_COMPILER', undef;
 my $profiling = env_option 'PSASS_PROFILING', 0;
+my $sanitizer = env_option 'PSASS_ADDRESS_SANITIZER', 0;
 my $skip_manifest = env_option 'PSASS_SKIP_MANIFEST', 0;
 my $skip_version = env_option 'PSASS_SKIP_VERSION', 0;
 my $update_deps = env_option 'PSASS_UPDATE_DEPS', 0;
@@ -74,6 +75,7 @@ sub help
 	print "  The following options are for developers only:\n\n";
 	print "  --debug              Build libsass in debug mode\n";
 	print "  --profiling          Enable gcov profiling switches\n";
+	print "  --sanitizer          Enable memory address sanitizer\n";
 	print "  --compiler           Skips compiler autodetection (passed to CppGuess)\n";
 	print "  --skip-manifest      Skips manifest generation (would need git repo)\n";
 	print "  --skip-version       Skips generating libsass/VERSION (would need git repo)\n";
@@ -163,6 +165,7 @@ GetOptions(
 	'--library!' => \$install_library,
 	'--compiler:s' => \$compiler,
 	'--profiling!' => \$profiling,
+	'--sanitizer!' => \$sanitizer,
 	'--patch-gcc44' => \$patch_gcc44,
 	'--skip-git!' => \$skip_git,
 	'--skip-version!' => \$skip_version,
@@ -188,6 +191,8 @@ if ($install_sassc) {
 }
 
 if ($install_plugins) {
+	# add optional libsass-tests plugin
+	push @submodules, "plugins/tests";
 	# add optional libsass-math plugin
 	push @submodules, "plugins/math";
 	# add optional libsass-img-size plugin
@@ -391,6 +396,11 @@ push @flags, '-Wall -Wextra -Wno-unused-parameter';
 $optimize = '-O1' if $debug_mode;
 push @defs, 'DEBUG' if $debug_mode;
 
+# why pass up free performance
+push @defs, 'NDEBUG' unless $debug_mode;
+# push @flags, '-flto -fno-use-linker-plugin' unless $debug_mode;
+# push @libs, '-flto -fno-use-linker-plugin' unless $debug_mode;
+
 # not sure why this does not work otherwise
 push @flags, '-o $*.o' if ($guess->is_gcc);
 push @flags, '-o $*.o' if ($guess->is_clang);
@@ -405,6 +415,11 @@ push @libs, '-fprofile-arcs' if $profiling;
 push @libs, '-ftest-coverage' if $profiling;
 push @flags, '-fprofile-arcs' if $profiling;
 push @flags, '-ftest-coverage' if $profiling;
+
+# enable memory address sanitizer
+push @libs, '-fsanitize=address' if $sanitizer;
+push @flags, '-fsanitize=address' if $sanitizer;
+
 
 # now add our custom flags
 $guess->add_extra_linker_flags(join(' ', @libs));
@@ -696,6 +711,26 @@ sub libsass_plugin_math
 	return join "\n", @ret;
 }
 
+sub libsass_plugin_tests
+{
+	my @ret = 'TESTS_OBJ = plugins/tests/src/tests$(OBJ_EXT)';
+	# location of the created object
+	push @ret, 'TESTS_LIB = $(INST_ARCHAUTODIR)/plugins/tests/tests.$(SO)';
+	# create the target for the makefile
+	push @ret, '$(TESTS_LIB): $(LIBSASS_LIB) $(TESTS_OBJ)';
+	# make sure the plugin path exists for output
+	push @ret, "\t" . '$(MKPATH) $(INST_ARCHAUTODIR)/plugins/tests';
+	# create the libsass shared library by linking against all objects
+	push @ret, "\t" . compile_lib($_[0], '$(TESTS_LIB)') . ' $(TESTS_OBJ)'
+		     . ' ' . ($static ? '$(LIBSASS_OBJ)' : '-L$(INST_ARCHAUTODIR) -lsass -lstdc++');
+	# add target to virtual "pure_all"
+	push @cleanups, '$(TESTS_OBJ)';
+	push @cleanups, '$(TESTS_LIB)';
+	push @targets, '$(TESTS_LIB)';
+	# return makefile part
+	return join "\n", @ret;
+}
+
 sub libsass_plugin_img_size
 {
 	my @ret = 'IMG_SIZE_OBJ = plugins/img-size/src/img-size$(OBJ_EXT)';
@@ -786,6 +821,7 @@ sub runOnce
 	if ($install_plugins) {
 		push @commands, '', libsass_plugin_glob($mm);
 		push @commands, '', libsass_plugin_math($mm);
+		push @commands, '', libsass_plugin_tests($mm);
 		push @commands, '', libsass_plugin_img_size($mm);
 		push @commands, '', libsass_plugin_digest($mm);
 	}

@@ -35,12 +35,10 @@ our @EXPORT_OK = qw(
 	auto_quote
 	need_quotes
 	resolve_file
-	sass2scss
 	import_sv
 	sass_compile
 	sass_compile_file
 	libsass_version
-	sass2scss_version
 	sass_operation
 	sass_stringify
 	SASS_COMMA
@@ -60,16 +58,11 @@ our @EXPORT = qw(
 	SASS_STYLE_EXPANDED
 	SASS_STYLE_COMPACT
 	SASS_STYLE_COMPRESSED
-	SASS2SCSS_PRETTIFY_0
-	SASS2SCSS_PRETTIFY_1
-	SASS2SCSS_PRETTIFY_2
-	SASS2SCSS_PRETTIFY_3
-	SASS2SCSS_KEEP_COMMENT
-	SASS2SCSS_STRIP_COMMENT
-	SASS2SCSS_CONVERT_COMMENT
+  sass_print_stdout
+  sass_print_stderr
 );
 
-our $VERSION = "3.6.0";
+our $VERSION = "3.9.0";
 
 require XSLoader;
 XSLoader::load('CSS::Sass', $VERSION);
@@ -176,6 +169,18 @@ my $fix_lib_loading = sub {
     @ppaths; # imported from plugins module
 };
 
+sub sass_print_stdout
+{
+  my ($message) = join("", @_);
+  print_stdout($message);
+}
+
+sub sass_print_stderr
+{
+  my ($message) = join("", @_);
+  print_stderr($message);
+}
+
 sub sass_compile
 {
     local $ENV{'PATH'};
@@ -184,7 +189,7 @@ sub sass_compile
     no warnings 'uninitialized';
     $normalize_options->(\%options);
     my $r = compile_sass($sass_code, \%options);
-    wantarray ? ($r->{output_string}, $r->{error_message}, $r) : $r->{output_string}
+    wantarray ? ($r->{output_string}, $r->{error_formatted}, $r) : $r->{output_string}
 }
 
 sub sass_compile_file
@@ -195,7 +200,7 @@ sub sass_compile_file
     no warnings 'uninitialized';
     $normalize_options->(\%options);
     my $r = compile_sass_file($input_path, \%options);
-    wantarray ? ($r->{output_string}, $r->{error_message}, $r) : $r->{output_string}
+    wantarray ? ($r->{output_string}, $r->{error_formatted}, $r) : $r->{output_string}
 }
 
 sub compile
@@ -283,12 +288,6 @@ CSS::Sass - Compile .scss files using libsass
                                          output_style    => SASS_STYLE_NESTED,
                                          source_map_file => 'output.css.map');
 
-  # Import sass2scss function
-  use CSS::Sass qw(sass2scss);
-
-  # convert indented syntax
-  my $scss = sass2scss($sass);
-
   # Import quoting functions
   use CSS::Sass qw(quote unquote);
 
@@ -330,7 +329,7 @@ It will return C<undef> in that case.
 Returns the error encountered by the most recent invocation of
 C<compile>. This is only useful if the C<dont_die> option is set.
 
-C<libsass> error messages are in the form ":$line:$column $error_message" so
+C<libsass> error messages are in the form ":$line:$column $stderr_string" so
 you can append them to the filename for a standard looking error message.
 
 =item C<options>
@@ -385,7 +384,7 @@ The status hash holds usefull information after compilation:
 
 =item C<error_text>
 
-=item C<error_message>
+=item C<stderr_string>
 
 =item C<error_json>
 
@@ -580,51 +579,6 @@ We bless native return values from custom functions into the correct package.
 
     # sub get-list { return [ 'foo', 42, 'bar' ] };
     .class { content: nth(get-list(), 2); }
-
-=back
-
-=head1 MISCELLANEOUS
-
-=over 4
-
-=item C<SASS2SCSS_PRETTIFY_0>
-
-Write everything on one line (minimized)
-
-=item C<SASS2SCSS_PRETTIFY_1>
-
-Add lf after opening bracket (lisp style)
-
-=item C<SASS2SCSS_PRETTIFY_2>
-
-Add lf after opening and before closing bracket (1TBS style)
-
-=item C<SASS2SCSS_PRETTIFY_3>
-
-Add lf before/after opening and before closing (allman style)
-
-=item C<SASS2SCSS_KEEP_COMMENT>
-
-Keep multi-line source code comments.
-Single-line comments are removed by default.
-
-=item C<SASS2SCSS_STRIP_COMMENT>
-
-Strip all source code (single- and multi-line) comments.
-
-=item C<SASS2SCSS_CONVERT_COMMENT>
-
-Convert single-line comments to mutli-line comments.
-
-=item C<sass2scss($sass, $options)>
-
-We expose the C<sass2scss> function, which can be used to convert indented sass
-syntax to the newer scss syntax. You may need this, since C<libsass> will not
-automatically recognize the format of your string data.
-
-    my $options = SASS2SCSS_PRETTIFY_1;
-    $options |= SASS2SCSS_CONVERT_COMMENT;
-    my $scss = sass2scss($sass, $options);
 
 =back
 

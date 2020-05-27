@@ -18,7 +18,7 @@ sub new {
 	my $data = main::read_file($path);
 	if ($data =~ m/^[^<]*?(<=+>)/) {
 		my $boundary = $1;
-		while ($data =~ s/^$boundary[ \f\t]*//s) {
+		while ($data =~ s/^\s*$boundary[ \f\t]*//s) {
 			if ($data =~ s/^([^\r\n]+)\r?\n(.*?)(?=$boundary|\z)//s) {
 				my $fname = main::catfile($1);
 				if (exists $hrx->{$fname}) {
@@ -339,6 +339,7 @@ sub msg
 		# clean todo warnings (remove all warning blocks)
 		$msg =~ s/^(?:DEPRECATION )?WARNING(?:[^\n]+\n)*\n*//gm;
 	}
+	$msg =~ s/^Error(?:[^\n]+\n)*\n*//gm;
 	# $msg =~ s/\n.*\Z//s;
 	return $msg;
 }
@@ -361,37 +362,39 @@ sub execute
 		$spec->query('prec'),
 		'output_style',
 		$spec->style,
+		'logger_unicode', 0,
+		'logger_color', 0,
 		'include_paths',
 		[abs_path('t/sass-spec/spec')],
 		'dont_die', 1
 	);
 
 	my $cwd = getcwd();
-	chdir(dirname($spec->{file}));
+	# chdir(dirname($spec->{file}));
 	my $comp = CSS::Sass->new(%options);
+	CSS::Sass::chdir(dirname($spec->{file}));
 
 	# save stderr
-	no warnings 'once';
-	open OLDFH, '>&STDERR';
+	# no warnings 'once';
+	# open OLDFH, '>&STDERR';
 
-	# redirect stderr to file
-	open(STDERR, "+>:raw:utf8", "specs.stderr.log"); select(STDERR); $| = 1;
-	my ($css, $stats) = eval { $comp->compile_file(basename($spec->{file})) }; my $err = $@;
-	sysseek(STDERR, 0, 0); sysread(STDERR, my $msg, 65536);
-	close(STDERR); unlink("specs.stderr.log");
+	# call out to libsass to do the rendering
+	my ($css, $stats) = $comp->compile_file(basename($spec->{file}));
+    # warn "WTF\n";
 
 	# reset stderr
-	open STDERR, '>&OLDFH';
+	# open STDERR, '>&OLDFH';
 
 	# store the results
 	$spec->{css} = $css;
-	$spec->{err} = $stats->{"error_message"};
-	$spec->{msg} = $msg;
+	$spec->{msg} = $stats->{"stderr_string"};
+	$spec->{err} = $stats->{"error_formatted"};
 
-	chdir($cwd);
+	# chdir($cwd);
+	CSS::Sass::chdir($cwd);
 
 	# return the results
-	return $css, $err;
+	return $css;
 
 }
 
@@ -412,7 +415,7 @@ sub query { shift->{root}->query(@_); }
 ################################################################################
 package main;
 ################################################################################
-our $unpackOnce; BEGIN { $unpackOnce = 1; }
+our $unpackOnce; BEGIN { $unpackOnce = 0; }
 ################################################################################
 
 use Carp qw(croak);
@@ -615,7 +618,20 @@ BEGIN {
 		! $_->query('ignore') &&
 		$_->query('start') <= 3.4
 	} @tests;
+	if (0) {
+	die join("\n", sort map {
+	 	$_->{file}
+	 } grep {
+	 	$_->query('todo') &&
+		!($_->{file} =~ m/different_module/) &&
+		!($_->{file} =~ m/named/) &&
+		!($_->{file} =~ m/module/) &&
+		!($_->{file} =~ m/forward/) &&
+	 	$_->query('start') <= 3.4
+	 } @tests), "\n";
+	}
 }
+
 
 END {
 	revert_hrx;
@@ -641,6 +657,32 @@ open(my $fh, ">", "dashit.scss");
 foreach my $spec (@specs)
 {
 
+	# those seem to fail due to scoping
+	#next if $spec->file =~ m/mixin\-content/;
+	#next if $spec->file =~ m/bourbon/;
+	# next if $spec->file =~ m/_1255/;
+	#next if $spec->file =~ m/issue_1927/;
+	#next if $spec->file =~ m/issue_2095/;
+	#next if $spec->file =~ m/meta[\\\/]load_css/;
+	#next if $spec->file =~ m/dash_insensitive/;
+	#next if $spec->file =~ m/general[\\\/]forward/;
+	#next if $spec->file =~ m/indirect[\\\/]forward/;
+	#next if $spec->file =~ m/inaccessible[\\\/]nested/;
+	
+	# next if $spec->file =~ m/while_directive/;
+	#next if $spec->file =~ m/while_directive/;
+	#next if $spec->file =~ m/module_functions/;
+	#next if $spec->file =~ m/libsass/;
+	#next if $spec->file =~ m/moz_document/;
+	#next if $spec->file =~ m/non_conf/;
+	# next if $spec->file =~ m/libsass-closed-issues/;
+	# next if $spec->file =~ m/meta[\\\/]keywords/;
+	#next if $spec->file =~ m/import_to_forward[\\\/]nested/;
+	#next if $spec->file =~ m/import[\\\/]import_to_forward/;
+	
+	#next if $spec->file =~ m/blead-global.expanding.function/;
+	#next if $spec->file =~ m/blead-global.functional.while/;
+
 if ($spec->err eq "" ) {
 	my $file = $spec->{file};
 	my $in = read_file($spec->{file});
@@ -653,22 +695,14 @@ if ($spec->err eq "" ) {
 
 }
 
-	# those seem to fail due to scoping
-	#next if $spec->file =~ m/mixin\-content/;
-	# next if $spec->file =~ m/bourbon/;
-	# next if $spec->file =~ m/_1255/;
-	# next if $spec->file =~ m/_2520/;
-	# next if $spec->file =~ m/while_directive/;
-	
-
-	if ($spec->css eq $spec->expect2 && $spec->css ne $spec->expect) {
-		# compare the result with expected data
-		eq_or_diff ($spec->css, $spec->expect2, "CSS: " . $spec->file);
-		push @matchDartSass, $spec;
-	} else {
+	#if ($spec->css eq $spec->expect2 && $spec->css ne $spec->expect) {
+	#	# compare the result with expected data
+	#	eq_or_diff ($spec->css, $spec->expect2, "CSS: " . $spec->file);
+	#	push @matchDartSass, $spec;
+	#} else {
 		# compare the result with expected data
 		eq_or_diff ($spec->css, $spec->expect, "CSS: " . $spec->file);
-	}
+	#}
 
 	# skip some faulty error specs (perl is picky)
 	if ($spec->{file} =~ m/\Wissue_(?:2446)\W/) {
@@ -697,8 +731,6 @@ if ($spec->err eq "" ) {
 		else {
 			eq_or_diff ($spec->msg, $spec->stdmsg, "Warnings: " . $spec->file);
 		}
-
-
 	}
 }
 
