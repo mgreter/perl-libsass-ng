@@ -1,9 +1,9 @@
 [submodule "libsass"]
 	path = libsass
-	url = git://github.com/sass/libsass.git
+	url = https://github.com/mgreter/libsass-ng.git
 [submodule "t/sass-spec"]
 	path = t/sass-spec
-	url = git://github.com/sass/sass-spec.git
+	url = https://github.com/mgreter/sass-spec-ng.git
 [submodule "plugins/sassc"]
 	path = plugins/sassc
 	url = https://github.com/sass/sassc
