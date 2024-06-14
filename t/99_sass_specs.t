@@ -354,7 +354,7 @@ sub execute
 	return if defined $spec->{err};
 
 	# report spec file
-	#warn $spec->{file};
+	# warn $spec->{file};
 
 	# CSS::Sass options
 	my %options = (
@@ -653,6 +653,22 @@ my @matchDartSass;
 
 open(my $fh, ">", "dashit.scss");
 
+sub match_content {
+	my ($dir, $regex) = @_;
+	opendir(my $dh, $dir) or return 1;
+	while (my $entry = readdir($dh)) {
+		next if $entry eq ".";
+		next if $entry eq "..";
+		my $fname = join("/", $dir, $entry);
+		next unless -f $fname;
+		my $content = read_file($fname);
+		return 1 if ($content =~ m/$regex/);
+	}
+	return 0;
+}
+
+my $skipped = 0;
+
 # run tests after filtering
 foreach my $spec (@specs)
 {
@@ -695,6 +711,17 @@ if ($spec->err eq "" ) {
 
 }
 
+	my $skip = 0;
+	#$skip |= match_content(dirname($spec->{file}), "\@media");
+	#$skip |= match_content(dirname($spec->{file}), "load-css");
+	#$skip |= match_content(dirname($spec->{file}), "\@import");
+	#$skip |= match_content(dirname($spec->{file}), "\@forward");
+	#$skip |= match_content(dirname($spec->{file}), "\@extend");
+	if ($skip) {
+		$skipped ++;
+		ok('Skip detected features in use');
+	} else {
+
 	#if ($spec->css eq $spec->expect2 && $spec->css ne $spec->expect) {
 	#	# compare the result with expected data
 	#	eq_or_diff ($spec->css, $spec->expect2, "CSS: " . $spec->file);
@@ -704,8 +731,13 @@ if ($spec->err eq "" ) {
 		eq_or_diff ($spec->css, $spec->expect, "CSS: " . $spec->file);
 	#}
 
+	}
+
+
 	# skip some faulty error specs (perl is picky)
-	if ($spec->{file} =~ m/\Wissue_(?:2446)\W/) {
+	if ($skip) {
+		ok('Skip detected features in use');
+	} elsif ($spec->{file} =~ m/\Wissue_(?:2446)\W/) {
 		ok('Invalid UTF8 sequence in output');
 	} elsif(!$spec->css) {
 
@@ -721,17 +753,19 @@ if ($spec->err eq "" ) {
 		ok('Skip error case since we had css result');
 	}
 	# skip some faulty warning specs (perl is picky)
-	if ($spec->{file} =~ m/\Wissue_(?:308|1578)\W/) {
+	if ($skip) {
+		ok('Skip detected features in use');
+	} elsif ($spec->{file} =~ m/\Wissue_(?:308|1578)\W/) {
 		ok('Warning message not marked as todo in spec')
 	} else {
-		ok('Warnings are skipped for now, will do them later');
+		#ok('Warnings are skipped for now, will do them later');
 
-		#if (0 && $spec->msg eq $spec->stdmsg2 && $spec->msg ne $spec->stdmsg) {
-		#	eq_or_diff ($spec->msg, $spec->stdmsg2, "Warnings: " . $spec->file);
-		#}
-		#else {
-		#	eq_or_diff ($spec->msg, $spec->stdmsg, "Warnings: " . $spec->file);
-		#}
+		if (0 && $spec->msg eq $spec->stdmsg2 && $spec->msg ne $spec->stdmsg) {
+			eq_or_diff ($spec->msg, $spec->stdmsg2, "Warnings: " . $spec->file);
+		}
+		else {
+			eq_or_diff ($spec->msg, $spec->stdmsg, "Warnings: " . $spec->file);
+		}
 	}
 }
 
@@ -740,3 +774,5 @@ foreach my $spec (@matchDartSass) {
 	# print $spec->file, "\n";
 }
 # print ("=" x 60), "\n" if scalar @matchDartSass;
+
+warn "SKIPPED $skipped tests\n";
