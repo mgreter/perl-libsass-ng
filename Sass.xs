@@ -602,6 +602,7 @@ void init_sass_options(struct SassCompiler* sass_compiler, HV* perl_options)
     SV** include_paths_sv        = hv_fetchs(perl_options, "include_paths",        false);
     SV** plugin_paths_sv         = hv_fetchs(perl_options, "plugin_paths",         false);
     SV** precision_sv            = hv_fetchs(perl_options, "precision",            false);
+    SV** work_dir_sv             = hv_fetchs(perl_options, "working_directory",    false);
 //    SV** linefeed_sv             = hv_fetchs(perl_options, "linefeed",             false);
 //    SV** indent_sv               = hv_fetchs(perl_options, "indent",               false);
 //    SV** source_map_root_sv      = hv_fetchs(perl_options, "source_map_root",      false);
@@ -628,6 +629,7 @@ void init_sass_options(struct SassCompiler* sass_compiler, HV* perl_options)
 
     if (plugin_paths_sv)         sass_compiler_load_plugins             (sass_compiler, safe_svpv(*plugin_paths_sv, ""));
     if (include_paths_sv)        sass_compiler_add_include_paths        (sass_compiler, safe_svpv(*include_paths_sv, ""));
+    if (work_dir_sv)        sass_compiler_set_work_directory        (sass_compiler, safe_svpv(*work_dir_sv, ""));
 
 //    if (omit_source_map_sv)      sass_compiler_set_omit_source_map_url  (sass_compiler, SvTRUE(*omit_source_map_sv));
 //    if (omit_source_map_url_sv)  sass_compiler_set_omit_source_map_url  (sass_compiler, SvTRUE(*omit_source_map_url_sv));
@@ -1018,15 +1020,6 @@ import_sv(sv)
     }
     OUTPUT:
              RETVAL
-
-void
-chdir(path)
-             const char* path
-    CODE:
-    {
-        sass_chdir(path);
-
-    }
 
 SV*
 libsass_version()
