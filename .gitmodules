@@ -6,7 +6,7 @@
 	url = https://github.com/mgreter/sass-spec-ng.git
 [submodule "plugins/sassc"]
 	path = plugins/sassc
-	url = https://github.com/sass/sassc
+	url = https://github.com/mgreter/sassc-ng.git
 [submodule "plugins/math"]
 	path = plugins/math
 	url = https://github.com/mgreter/libsass-math
