@@ -8,6 +8,10 @@ use File::Spec::Functions;
 use File::Path qw(make_path);
 use YAML::XS;
 
+our $spath;
+
+BEGIN { $spath = "t/sass-spec"; }
+
 ################################################################################
 package Archive::HRX;
 ################################################################################
@@ -37,6 +41,8 @@ sub new {
 	return $hrx;
 }
 
+sub update {
+}
 
 ################################################################################
 package DIR;
@@ -365,7 +371,7 @@ sub execute
 		'logger_unicode', 0,
 		'logger_color', 0,
 		'include_paths',
-		[abs_path('t/sass-spec/spec')],
+		[abs_path("$spath/spec")],
 		'working_directory',
 		dirname($spec->{file}),
 		'dont_die', 1
@@ -406,7 +412,7 @@ sub style
 	return SASS_STYLE_EXPANDED unless defined $style;
 	if ($style =~ m/compact/i) { return SASS_STYLE_COMPACT; }
 	elsif ($style =~ m/nested/i) { return SASS_STYLE_NESTED; }
-	elsif ($style =~ m/compres/i) { return SASS_STYLE_COMPRESSED; }
+	elsif ($style =~ m/compress/i) { return SASS_STYLE_COMPRESSED; }
 	# elsif ($style =~ m/expanded/i) { return SASS_STYLE_EXPANDED; }
 	return SASS_STYLE_EXPANDED;
 }
@@ -417,10 +423,12 @@ sub query { shift->{root}->query(@_); }
 ################################################################################
 package main;
 ################################################################################
-our $unpackOnce; BEGIN { $unpackOnce = 0; }
+our $unpackOnce; BEGIN { $unpackOnce = 1; }
 ################################################################################
 
 use Carp qw(croak);
+
+use File::Spec::Functions qw(abs2rel);
 
 # ********************************************************************
 sub read_file($)
@@ -440,15 +448,18 @@ sub write_file($$)
 	binmode $fh; return print $fh $_[1];
 }
 
+my %hrxfiles;
+
 # ********************************************************************
 sub unpack_hrx()
 {
-	return if $unpackOnce && -f 't/sass-spec/.unpacked';
-	my @dirs = (['t/sass-spec/spec', new DIR]);
+	return if $unpackOnce && -f "$spath/.unpacked";
+	my @dirs = (["$spath/spec", new DIR]);
 	# walk through all directories
 	# no recursion for performance
 	while (my $entry = shift(@dirs))
 	{
+		my %hrx_paths; # cases info
 		my ($dir, $parent) = @{$entry};
 		my $test = new DIR($dir, $parent);
 		opendir(my $dh, $dir) or die $!;
@@ -466,10 +477,13 @@ sub unpack_hrx()
 			elsif (-f $path && $path =~ m/\.hrx$/) {
 				my $hrx = new Archive::HRX($path);
 				foreach my $file (keys %{$hrx}) {
+					next if $file eq ".";
 					my $path = substr($path, 0, -4);
 					my $fname = catfile($path, $file);
 					my $root = dirname($fname);
+					$hrx_paths{$root} = $hrx;
 					# warn "extracting $fname\n";
+					$hrxfiles{$fname} = [$path, $hrx];
 					make_path($root) unless -d $root;
 					write_file($fname, $hrx->{$file}) unless -f $fname;
 				}
@@ -481,57 +495,40 @@ sub unpack_hrx()
 	}
 	# Mark that it was unpacked
 	if ($unpackOnce) {
-		write_file('t/sass-spec/.unpacked', '');
+		write_file("$spath/.unpacked", '');
 	}
 }
 # ********************************************************************
 sub revert_hrx()
 {
-	return if $unpackOnce && -f 't/sass-spec/.unpacked';
-	unlink 't/sass-spec/.unpacked' if -f 't/sass-spec/.unpacked';
-	my @dirs = (['t/sass-spec/spec', new DIR]);
-	# walk through all directories
-	# no recursion for performance
-	while (my $entry = shift(@dirs))
-	{
-		my ($dir, $parent) = @{$entry};
-		my $test = new DIR($dir, $parent);
-		opendir(my $dh, $dir) or die $!;
-		while (my $ent = readdir($dh))
-		{
-			next if $ent eq ".";
-			next if $ent eq "..";
-			next if $ent =~ m/^\./;
-			# create combined path
-			my $path = catfile($dir, $ent);
-			# go into subfolders
-			if (-d $path) {
-				push @dirs, [$path, $test];
-			}
-			elsif (-f $path && $path =~ m/\.hrx$/) {
-				my $hrx = new Archive::HRX($path);
-				foreach my $file (keys %{$hrx}) {
-					my $path = substr($path, 0, -4);
-					my $fname = catfile($path, $file);
-					my $root = dirname($fname);
-					# warn "removing $fname\n";
-					unlink $fname if -f $fname;
-					next if $root eq $path;
-					rmdir($root) if -d $root;
-				}
-			}
+	return if $unpackOnce && -f "$spath/.unpacked";
+	unlink "$spath/.unpacked" if -f "$spath/.unpacked";
+	# use index to remove everything we created
+	# first remove all files we created in one go
+	foreach my $fname (keys %hrxfiles) {
+		next unless -f $fname;
+		next unless unlink $fname;
+		# warn "removed $fname\n";
+	}
+	# then try to cleanup all empty directories
+	foreach my $fname (keys %hrxfiles) {
+		my ($hrxpath, $hrx) = @{$hrxfiles{$fname}};
+		my $root = dirname($hrxpath);
+		my $path = dirname($fname);
+		while (-d $path) {
+			last if $path eq ".";
+			last if $path eq "..";
+			last if $path eq $root;
+			last unless rmdir($path);
+			# warn "removed $path\n";
+			$path = dirname($path);
 		}
-		# close anyway
-		closedir($dh);
-
 	}
 }
 
 # ********************************************************************
 sub load_tests()
 {
-
-	# result
 	my @specs; my $ignore = qr/huge|unicode\/report/;
 	my $filter = qr/\Q$ARGV[0]\E/ if defined $ARGV[0];
 	# initial spec test directory entry
@@ -540,7 +537,7 @@ sub load_tests()
 	$root->{end} = 999;
 	$root->{prec} = 10;
 	warn "Looking in $root\n";
-	my @dirs = (['t/sass-spec/spec', $root]);
+	my @dirs = (["$spath/spec", $root]);
 	# walk through all directories
 	# no recursion for performance
 	while (my $entry = shift(@dirs))
@@ -624,7 +621,8 @@ BEGIN {
 
 # @specs = ();
 # ..\..\..\..\sass-bench\inp.scss
-if (1) {
+if (0) {
+
 	@specs = grep { (
 		#$_->file =~ m/css[\\\/]plain[\\\/]import/ | 
 		#$_->file =~ m/destructured[\\\/]multiline/ | 
@@ -632,7 +630,8 @@ if (1) {
 		#$_->file =~ m/supports[\\\/]comment/ | 
 		#$_->file =~ m/spec[\\\/]libsass/ | 
 		#$_->file =~ m/spec[\\\/]css/ | 
-		$_->file =~ m/core_functions[\\\/]color[\\\/]scale/ | 
+		# $_->file =~ m/error[\\\/]known_incompatible[\\\/]unknown_and_none/ | 
+		$_->file =~ m/core_functions[\\\/]color/ | 
 		0
 		)
 	} @specs;
@@ -749,6 +748,192 @@ sub match_content {
 	return 0;
 }
 
+# ********************************************************************
+# ********************************************************************
+
+my $convert_errors = 0;
+my $convert_all_errors = 0;
+my $convert_missing_args = 0;
+my $convert_no_args = 0;
+my $convert_wrapped = 0;
+my $convert_selectors = 0;
+my $convert_wrong_units = 0;
+my $convert_no_units = 0;
+my $convert_import_loop = 0;
+my $convert_ambigous_import = 0;
+my $convert_more_var_info = 0;
+my $convert_calculations = 0;
+my $convert_angle_var = 0;
+
+# ********************************************************************
+
+sub first_line { 
+	my $data = $_[0];
+
+	return "pass" if $convert_all_errors;
+
+	$data =~ s/[^\n]+(\d+) DEBUG: [^\n]*//g;
+	$norm_output->($data);
+	# clean todo warnings (remove all warning blocks)
+	$data =~ s/^(?:DEPRECATION )?WARNING(?:(?!Error)[^\n]+\n)*\n*//gm;
+	$data = $1 if $data =~ m/^([^\n\r]+?)[\n\r]/;
+
+	# $data =~ s/Missing argument \$[a-z]+/Missing argument/;
+
+
+	# $data =~ s/Error: Missing argument \$(hue|red|blue|green)\. /Error: Missing argument \$channels/;
+
+	# $data =~ s/Error: color\. /Error: /;
+	# $data =~ s/Error: Value /Error: /;
+
+	# Enable this to migrate error messages involving missing arguments missing
+	$data = "pass" if $convert_missing_args && $data =~ m/Error: Missing argument/;
+
+	# Enable this to migrate error messages involving missing single arguments missing
+	$data = "pass" if $convert_no_args && $data =~ m/Error: Missing argument\.$/;
+	$data = "pass" if $convert_no_args && $data =~ m/must have at least one argument.\$/;
+	$data = "pass" if $convert_no_args && $data =~ m/At least one argument must be passed/;
+
+	# This message wraps in libsass, just make it pass for automated migration
+	$data = "pass" if $convert_wrapped && $data =~ m/Because the CSS working group is still deciding/;
+	$data = "pass" if $convert_wrapped && $data =~ m/argument for forwards-compatibility with changes in the CSS spec/;
+	$data = "pass" if $convert_wrapped && $data =~ m/is only supported for legacy colors. Please use color/;
+	
+	# Selector parsing should carry over the name of the argument
+	$data = "pass" if $convert_selectors && $data =~ m/: expected selector.$/;
+	$data = "pass" if $convert_selectors && $data =~ m/: expected more input.$/;
+	$data = "pass" if $convert_selectors && $data =~ m/Parent selectors aren't allowed here/;
+
+	# There seems to be two different message formats in dart-sass, we use only one
+	$data =~ s/ are incompatible\.$/ have incompatible units./ if $convert_wrong_units;
+	$data = "pass" if $convert_wrong_units && $data =~ m/have incompatible units\.$/;
+
+	# Enable this to migrate error messages involving no units, where we report also report the variable name
+	$data =~ s/Error: \$[a-z_\-]+: Expected (.*?) to have no units/Error: Expected $1 to have no units/ if $convert_no_units;
+
+	# Only enable this once to migrate the corresonding error specs
+	# Warning: Check the results for any false-positives carefully
+	$data = "pass" if $convert_ambigous_import && $data =~ m/is available from multiple global modules/;
+
+	# Enable this once to migrate import loop error messages
+	$data = "pass" if $convert_import_loop && $data =~ m/is already being loaded/;
+	$data = "pass" if $convert_import_loop && $data =~ m/An \@import loop has been found/;
+	
+	# Convert some messages related to calculation resolving
+	$data = "pass" if $convert_calculations && $data =~ m/can't be used in a calculation\.$/;
+
+	$data =~ s/Error: This variable (was|is)/Error: $1/ if $convert_more_var_info;
+
+	return $data;
+}
+
+sub my_first_line
+{
+	my $data = first_line($_[0]);
+
+	##### $data =~ s/Missing argument \$[a-z_\-]+/Missing argument/ if $convert_missing_args;
+
+	# $data =~ s/Error: \$[a-z_\-]+: Expected (.*?) to have no units/Error: Expected $1 to have no units/;
+
+	# Only enable once to migrate messages where
+	# we have more info than original implementation
+	$data =~ s/Error: \$[a-z_\-]+: /Error: / if $convert_more_var_info;
+	$data =~ s/Error: \$[a-z_\-]+ (was|is)/Error: $1/ if $convert_more_var_info;
+	$data =~ s/Error: \$[a-z_\-]+: /Error: / if $convert_more_var_info;
+	$data =~ s/Error: \$angle/Error: \$number/ if $convert_angle_var;
+
+
+	return $data;
+}
+
+# once determined the output is valid
+# we can update the actual hrx error
+sub update_libsass_hrx_error {
+
+	my ($spec, $root, $hrx) = @_;
+
+	# get relative path into hrx file
+	my $path = dirname($spec->{file});
+	my $rpath = abs2rel($path, $root);
+
+	$rpath =~ s/\\/\//g;
+
+	my $search = catfile($rpath, "error");
+	my $content = read_file("${root}.hrx");
+	my $test = "<===> ${rpath}/error-libsass\n";
+	$test = "<===> error-libsass\n" if $rpath eq ".";
+	# normalize the path delimiters everywhere
+	$search =~ s/\\/\//g; $test =~ s/\\/\//g;
+	# append produced output to case
+	$test .= $spec->err;
+
+	if (exists $hrx->{catfile($rpath, "error-libsass")}) {
+		if ($content =~ s/(\<===\>\s*\Q$search\E-libsass.*?)\n?(\n*\<===\>|\Z)/${test}${2}/s) {
+			warn "Updated ${rpath}/error-libsass in ${root}.hrx\n";
+			write_file("${root}.hrx", $content);
+		}
+		else {
+			warn "Could not update ${rpath}/error-libsass in ${root}.hrx\n";
+		}
+	}
+	else {
+
+		if ($content =~ s/(\<===\>\s*\Q$search\E.*?)\n?(\n*\<===\>|\Z)/${1}\n\n${test}${2}/s) {
+			warn "Added ${rpath}/error-libsass to ${root}.hrx\n";
+			write_file("${root}.hrx", $content);
+		}
+		else {
+			warn "Could not insert ${rpath}/error-libsass into ${root}.hrx\n";
+		}
+	}
+
+}
+
+# check if result is valid against original
+# if so, we will update the hrx error case
+sub check_libsass_hrx_error_update {
+
+	my $spec = $_[0];
+
+	# update the actual (unpacked) spec-test on the disk
+	write_file($spec->{root}->{root} . "/error-libsass", $spec->err);
+
+	# check that spec case is defined in hrx file
+	return unless exists $hrxfiles{$spec->{file}};
+
+	# get arguments from the hrx info database
+	my ($root, $hrx) = @{$hrxfiles{$spec->{file}}};
+
+	# get relative path into hrx file
+	my $path = dirname($spec->{file});
+	my $rpath = abs2rel($path, $root);
+
+	# check if hrx defines spec test to have an error case
+	return unless exists $hrx->{catfile($rpath, "error")};
+
+	if (exists $hrx->{catfile($rpath, "error-libsass")}) {
+		my $original = $hrx->{catfile($rpath, "error")};
+		my $ours = $hrx->{catfile($rpath, "error-libsass")};
+		warn "Remove error-libsass for $rpath\n";
+	}
+
+	# get expected  error case (ignore error-libsass)
+	my $expected = $hrx->{catfile($rpath, "error")};
+
+	# check if first line of expected error matches our output
+	return unless first_line($expected) eq my_first_line($spec->err);
+
+	# do nothing if output matches expected error
+	return if $expected eq $spec->err;
+
+	# now do the actual error case update
+	update_libsass_hrx_error($spec, $root, $hrx);
+
+}
+
+# ********************************************************************
+# ********************************************************************
+
 my $skipped = 0;
 
 warn "Found ", scalar(@specs), " spec tests (of ", scalar(@tests), ")\n";
@@ -862,13 +1047,18 @@ if ($spec->err eq "" ) {
 
 	}
 
-
 	# skip some faulty error specs (perl is picky)
 	if ($skip) {
 		ok('Skip detected features in use');
 	} elsif ($spec->{file} =~ m/\Wissue_(?:2446)\W/) {
 		ok('Invalid UTF8 sequence in output');
 	} elsif(!$spec->css) {
+		# potentially update the error spec
+		if ($convert_errors) {
+			if ($spec->err ne $spec->stderr) {
+				check_libsass_hrx_error_update($spec);
+			}
+		}
 		# ok('Errors are skipped for now, will do them later');
 
 		#if ($spec->err eq $spec->stderr2 && $spec->err ne $spec->stderr) {
@@ -882,6 +1072,9 @@ if ($spec->err eq "" ) {
 	else {
 		ok('Skip error case since we had css result');
 	}
+
+	# check_libsass_hrx_error_update($spec);
+
 	# skip some faulty warning specs (perl is picky)
 	if ($skip) {
 		ok('Skip detected features in use');
@@ -897,6 +1090,7 @@ if ($spec->err eq "" ) {
 		#	eq_or_diff ($spec->msg, $spec->stdmsg, "Warnings: " . $spec->file);
 		#}
 	}
+
 }
 
 # print ("=" x 60), "\n" if scalar @matchDartSass;

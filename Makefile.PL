@@ -571,8 +571,8 @@ my %WriteMakefile = (
 		},
 	},
 	ABSTRACT_FROM      => 'lib/CSS/Sass.pm', # retrieve abstract from module
-	AUTHOR             => q{David Caldwell <david@porkrind.org>},
 	AUTHOR             => q{Marcel Greter <perl-libsass@ocbnet.ch>},
+	AUTHOR             => q{David Caldwell <david@porkrind.org>},
 	LICENSE            => 'MIT',
 	# options are set by CppGuess
 	# LIBS               => [''],
