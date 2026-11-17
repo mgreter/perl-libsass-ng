@@ -83,7 +83,7 @@ sub help
 	print "  --checkout-deps      Checkout submodules at linked commit (needs git repo)\n";
 	print "  --get-versions       Show versions of all perl package (.pm) files\n";
 	print "  --set-versions       Set versions of all perl package (.pm) files\n";
-	print "  --patch-gcc44        Patch libsass for gcc44 compatibility\n";
+	# print "  --patch-gcc44        Patch libsass for gcc44 compatibility\n";
 	print "  --skip-git           Do not try to use anything git related\n";
 	print "\n";
 	print "  You may use environment variables to set any option\n";
@@ -166,7 +166,7 @@ GetOptions(
 	'--compiler:s' => \$compiler,
 	'--profiling!' => \$profiling,
 	'--sanitizer!' => \$sanitizer,
-	'--patch-gcc44' => \$patch_gcc44,
+#	'--patch-gcc44' => \$patch_gcc44,
 	'--skip-git!' => \$skip_git,
 	'--skip-version!' => \$skip_version,
 	'--skip-manifest!' => \$skip_manifest,
@@ -323,19 +323,19 @@ if ($install_sassc) {
 # patch sources
 ################################################################################
 
-if ($patch_gcc44) {
-	my $cwd = Cwd::getcwd;
-	chdir ("libsass") or die "pushd: $!";
-	print "Patching libsass source for gcc compatibility\n";
-	foreach my $patch (sort glob("../patches/*.patch")) {
-		print "applying $patch\n";
-		# system "git", "am", "--abort";
-		system "git", "am", "--3way", "--keep-cr",
-			"--ignore-space-change", "--quiet", $patch;
-	}
-	system "perl", "script/replace-range-for-loops.pl";
-	chdir ($cwd) or die "popd: $!";
-}
+# if ($patch_gcc44) {
+# 	my $cwd = Cwd::getcwd;
+# 	chdir ("libsass") or die "pushd: $!";
+# 	print "Patching libsass source for gcc compatibility\n";
+# 	foreach my $patch (sort glob("../patches/*.patch")) {
+# 		print "applying $patch\n";
+# 		# system "git", "am", "--abort";
+# 		system "git", "am", "--3way", "--keep-cr",
+# 			"--ignore-space-change", "--quiet", $patch;
+# 	}
+# 	system "perl", "script/replace-range-for-loops.pl";
+# 	chdir ($cwd) or die "popd: $!";
+# }
 
 ################################################################################
 # compiler configurations
@@ -420,6 +420,10 @@ push @flags, '-ftest-coverage' if $profiling;
 push @libs, '-fsanitize=address' if $sanitizer;
 push @flags, '-fsanitize=address' if $sanitizer;
 
+# compile with custom c++ standard
+# Gives "Unknown standard 'c++11' for compiler 'is_gcc'"
+# Although the gcc compiler is new enough to support it!?
+# $guess->cpp_standard_flag( "c++0x" );
 
 # now add our custom flags
 $guess->add_extra_linker_flags(join(' ', @libs));
@@ -427,6 +431,10 @@ $guess->add_extra_compiler_flags(join(' ', @flags));
 
 # fetch the original compiler flags
 my %compiler_flags = $guess->makemaker_options();
+
+# change the c++ standard manually in newer version :-(
+# should probably add it for older version of CppGuess
+$compiler_flags{'CCFLAGS'} =~ s/std=c99/std=c++11/g;
 
 # remove c++ flag (only needed for cpp files)
 $compiler_flags{'CCFLAGS'} =~ s/\-xc\+\+//g;
@@ -441,6 +449,8 @@ $compiler_flags{'CCFLAGS'} =~ s/\s*\-O[1-9]//g if $profiling;
 
 # avoid invalid flag warning when compiling c++ files (already has -Wall and -Wextra)
 $compiler_flags{'CCFLAGS'} =~ s/(?:\s+|\A)-Wimplicit-function-declaration(?:\s+|\z)/ /g;
+
+# $compiler_flags{'CCFLAGS'} =~ s/c99/c++11/g;
 
 # parse source files directly from libsass makefile
 open(my $fh, "<", "libsass/Makefile.conf");

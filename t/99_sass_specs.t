@@ -423,7 +423,7 @@ sub query { shift->{root}->query(@_); }
 ################################################################################
 package main;
 ################################################################################
-our $unpackOnce; BEGIN { $unpackOnce = 0; }
+our $unpackOnce; BEGIN { $unpackOnce = 1; }
 ################################################################################
 
 use Carp qw(croak);
@@ -552,11 +552,11 @@ sub load_tests()
 			$test->{style} = $yaml->{':output_style'};
 			$test->{start} = $yaml->{':start_version'};
 			$test->{end} = $yaml->{':end_version'};
-			$test->{ignore} = grep /libsass|dart-sass/i,
+			$test->{ignore} = grep /libsass/i,
 				@{$yaml->{':ignore_for'} || []};
-			$test->{wtodo} = grep /libsass|dart-sass/i,
+			$test->{wtodo} = grep /libsass/i,
 				@{$yaml->{':warning_todo'} || []};
-			$test->{todo} = grep /libsass|dart-sass/i,
+			$test->{todo} = grep /libsass/i,
 				@{$yaml->{':todo'} || []};
 		}
 
@@ -631,7 +631,25 @@ if (0) {
 		#$_->file =~ m/spec[\\\/]libsass/ | 
 		#$_->file =~ m/spec[\\\/]css/ | 
 		# $_->file =~ m/error[\\\/]known_incompatible[\\\/]unknown_and_none/ | 
-		$_->file =~ m/core_functions[\\\/]color/ | 
+		# $_->file =~ m/core_functions[\\\/]color/ | 
+		$_->file =~ m/[\\\/]issue_1923[\\\/]/ | 
+
+		$_->file =~ m/[\\\/]issue_245443[\\\/]/ | 
+		$_->file =~ m/[\\\/]issue_673[\\\/]/ | 
+
+		$_->file =~ m/[\\\/]issue_712[\\\/]/ | 
+		$_->file =~ m/[\\\/]issue_221267[\\\/]/ | 
+		$_->file =~ m/[\\\/]issue_221286[\\\/]/ | 
+		$_->file =~ m/[\\\/]issue_245442[\\\/]/ | 
+		$_->file =~ m/[\\\/]issue_245446[\\\/]/ | 
+
+		$_->file =~ m/[\\\/]too_few_args[\\\/]/ | 
+		$_->file =~ m/[\\\/]rectangular_space_with_method[\\\/]/ | 
+		$_->file =~ m/[\\\/]to_gamut[\\\/]/ | 
+
+		$_->file =~ m/[\\\/]one_fuzzy[\\\/]/ | 
+		$_->file =~ m/[\\\/]incompatible_units[\\\/]/ | 
+		$_->file =~ m/[\\\/]libsass\-todo\-tests[\\\/]/ | 
 		0
 		)
 	} @specs;
@@ -764,6 +782,7 @@ my $convert_ambigous_import = 0;
 my $convert_more_var_info = 0;
 my $convert_calculations = 0;
 my $convert_angle_var = 0;
+my $convert_missing_end_dot = 0;
 
 # ********************************************************************
 
@@ -785,6 +804,8 @@ sub first_line {
 
 	# $data =~ s/Error: color\. /Error: /;
 	# $data =~ s/Error: Value /Error: /;
+
+	$data =~ s/\.$// if $convert_missing_end_dot;
 
 	# Enable this to migrate error messages involving missing arguments missing
 	$data = "pass" if $convert_missing_args && $data =~ m/Error: Missing argument/;
@@ -830,6 +851,10 @@ sub first_line {
 sub my_first_line
 {
 	my $data = first_line($_[0]);
+
+	return "pass" if $convert_all_errors;
+
+	$data =~ s/\.$// if $convert_missing_end_dot;
 
 	##### $data =~ s/Missing argument \$[a-z_\-]+/Missing argument/ if $convert_missing_args;
 
@@ -896,7 +921,7 @@ sub check_libsass_hrx_error_update {
 	my $spec = $_[0];
 
 	# update the actual (unpacked) spec-test on the disk
-	write_file($spec->{root}->{root} . "/error-libsass", $spec->err);
+	# write_file($spec->{root}->{root} . "/error-libsass", $spec->err);
 
 	# check that spec case is defined in hrx file
 	return unless exists $hrxfiles{$spec->{file}};
